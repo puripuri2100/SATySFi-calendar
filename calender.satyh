@@ -1,0 +1,220 @@
+@require: list
+@require: gr
+@require: color
+
+
+module Calender : sig
+
+  type day-of-the-week
+  type day-type
+  val make-day-list : int -> int -> (int * day-of-the-week * (int * int) * day-type) list
+  direct \calender : [float; int; int] inline-cmd
+
+
+end = struct
+
+
+let floor n =
+  if n < 0 then
+    n - 1
+  else
+    n
+
+
+let zeller-congruence year month day =
+  let c = floor (year / 100) in
+  let y = year mod 100 in
+  let gamma =
+    if 1582 < year then
+      5 * c + (floor (c / 4))
+    else
+      6 * c + 5
+  in
+  let f =
+    day + (floor ((26 * (month + 1)) / 10)) + y + (floor (y / 4))
+  in
+    if month == 1 then
+      ((f + 1) mod 7) + 1
+    else
+      if month == 2 then
+        ((f + 2) mod 7) + 1
+      else
+        (f mod 7) + 1
+
+
+let leap-year year =
+  if (year mod 4) == 0 && not ((year mod 100) == 0) || (year mod 400) == 0 then
+    true
+  else
+    false
+
+
+let-rec make-day-list n =
+  if n <= 0 then
+    []
+  else
+    List.append (make-day-list (n - 1)) [n]
+
+
+let make-month-day-list year month =
+  if % 31日まである月
+    month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12
+  then
+    make-day-list 31
+  else if not (month == 2) then % 2月を除くと30日になる月
+    make-day-list 30
+  else % うるう年は 29日
+    if leap-year year then
+      make-day-list 29
+    else
+      make-day-list 28
+
+
+type day-of-the-week =
+  | Monday
+  | Tuesday
+  | Wednesday
+  | Thursday
+  | Friday
+  | Saturday
+  | Sunday
+
+
+let make-day-of-the-week year month day =
+  let n = zeller-congruence year month day in
+  match n with
+  | 1 -> Monday
+  | 2 -> Tuesday
+  | 3 -> Wednesday
+  | 4 -> Thursday
+  | 5 -> Friday
+  | 6 -> Saturday
+  | 7 -> Sunday
+
+
+type day-type =
+  | Weekday
+  | Holiday
+
+let make-day-type year month day =
+  let d = zeller-congruence year month day in
+  match d with
+  | 7 -> Holiday
+  | _ -> Weekday
+
+
+let make-day-point year month day =
+  let day-of-the-week-first = zeller-congruence year month 1 in
+  let h-sub = ((day + day-of-the-week-first - 1) / 7) + 1 in
+  let h =
+    if day-of-the-week-first == 7 then
+      h-sub - 1
+    else
+      h-sub
+  in
+  let w-sub = (day + day-of-the-week-first) mod 7 in
+  let w = if w-sub == 0 then 7 else w-sub in
+    (h, w)
+
+
+% [(1, Monday, (1, 2), Weekday); (); ...; ()]
+
+let make-day-list year month =
+  let month-day-list = make-month-day-list year month in
+  let make-day-data day =
+    (day, (make-day-of-the-week year month day), (make-day-point year month day), (make-day-type year month day))
+  in
+    List.map make-day-data month-day-list
+
+
+let make-last-day-h year month =
+  let (last-h, last-w) =
+    if % 31日まである月
+      month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12
+    then
+      make-day-point year month 31
+    else if not (month == 2) then % 2月を除くと30日になる月
+      make-day-point year month 30
+    else % うるう年は 29日
+      if leap-year year then
+        make-day-point year month 29
+      else
+        make-day-point year month 28
+  in
+  last-h
+
+
+let-inline ctx \calender size year month =
+  let font-size = ((get-font-size ctx) *' 1.) *' size in
+  let color = Color.black in
+  let thickness = 1.0pt in
+  let cell-w = 30pt *' size in
+  let cell-h = 20pt *' size in
+  let w = cell-w *' 7.0 in
+  let last-day-h = make-last-day-h year month in
+  let h =
+    cell-h *' (float last-day-h)
+  in
+  let d = 0pt in
+  let day-list = make-day-list year month in
+  let deco-weekday n =
+    let ctx-weekday =
+      ctx |> set-text-color Color.black
+          |> set-font-size font-size
+    in
+      read-inline ctx-weekday (embed-string (arabic n))
+  in
+  let deco-holiday n =
+    let ctx-holiday =
+      ctx |> set-text-color Color.red
+          |> set-font-size font-size
+    in
+      read-inline ctx-holiday (embed-string (arabic n))
+  in
+  let make-gr-day-list (x, y) (day, day-of-the-week, (day-point-h, day-point-w), day-type) =
+    let ib =
+      match day-type with
+      | Weekday -> deco-weekday day
+      | Holiday -> deco-holiday day
+    in
+    let point-x = cell-w *' (float (day-point-w - 1)) +' 5pt +' x in
+    let point-y = h -' (cell-h *' (float (day-point-h - 1))) -' 15pt +' y
+    in
+      draw-text (point-x, point-y) ib
+  in
+  let gr-day-list (x, y) =
+    List.map (make-gr-day-list (x, y)) day-list
+  in
+  let gr-frame-sub-h (x, y) =
+    if last-day-h == 6 then
+      [stroke thickness color (Gr.line (x, y +' (cell-h *'5.)) (x +' w, y +' (cell-h *' 5.)));]
+    else
+      []
+  in
+  let gr-frame-sub (x, y) =
+    [
+      stroke thickness color (Gr.rectangle (x, y -' d) (x +' w, y +' h));
+
+
+      stroke thickness color (Gr.line (x, y +' (cell-h *' 4.)) (x +' w, y +' (cell-h *' 4.)));
+      stroke thickness color (Gr.line (x, y +' (cell-h *' 3.)) (x +' w, y +' (cell-h *' 3.)));
+      stroke thickness color (Gr.line (x, y +' (cell-h *' 2.)) (x +' w, y +' (cell-h *' 2.)));
+      stroke thickness color (Gr.line (x, y +' (cell-h *' 1.)) (x +' w, y +' (cell-h *' 1.)));
+
+
+      stroke thickness color (Gr.line (x +' (cell-w *' 6.), y) (x +' (cell-w *' 6.), y +' h));
+      stroke thickness color (Gr.line (x +' (cell-w *' 5.), y) (x +' (cell-w *' 5.), y +' h));
+      stroke thickness color (Gr.line (x +' (cell-w *' 4.), y) (x +' (cell-w *' 4.), y +' h));
+      stroke thickness color (Gr.line (x +' (cell-w *' 3.), y) (x +' (cell-w *' 3.), y +' h));
+      stroke thickness color (Gr.line (x +' (cell-w *' 2.), y) (x +' (cell-w *' 2.), y +' h));
+      stroke thickness color (Gr.line (x +' (cell-w *' 1.), y) (x +' (cell-w *' 1.), y +' h));
+    ]
+  in
+  let gr-list (x, y) =
+    List.append (gr-day-list (x, y)) (List.append (gr-frame-sub-h (x, y)) (gr-frame-sub (x, y)))
+  in
+    inline-graphics w h d (fun (x, y) -> gr-list (x, y))
+
+
+
+end
